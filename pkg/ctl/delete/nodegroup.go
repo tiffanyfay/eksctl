@@ -91,5 +91,24 @@ func doDeleteNodeGroup(p *api.ProviderConfig, cfg *api.ClusterConfig, ng *api.No
 		logger.Success("nodegroup %q %s deleted", ng.Name, verb)
 	}
 
+	{ // post-deletion action
+		clientConfigBase, err := ctl.NewClientConfig(cfg)
+		if err != nil {
+			return err
+		}
+
+		clientConfig := clientConfigBase.WithExecAuthenticator()
+
+		clientSet, err := clientConfig.NewClientSet()
+		if err != nil {
+			return err
+		}
+
+		// remove node group from config map
+		if err := ctl.RemoveNodeGroupAuthConfigMap(clientSet, ng); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
