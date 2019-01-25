@@ -55,8 +55,13 @@ func (c *ClusterProvider) CreateOrUpdateNodeGroupAuthConfigMap(clientSet *client
 
 //RemoveNodeGroupAuthConfigMap removes a nodegroup from the config map
 func (c *ClusterProvider) RemoveNodeGroupAuthConfigMap(clientSet *clientset.Clientset, ng *api.NodeGroup) error {
-	cm := &corev1.ConfigMap{}
 	client := clientSet.CoreV1().ConfigMaps(utils.AuthConfigMapNamespace)
+
+	cm, err := client.Get(utils.AuthConfigMapName, metav1.GetOptions{})
+	if err != nil {
+		return errors.Wrapf(err, "getting auth ConfigMap")
+	}
+
 	utils.RemoveNodeGroupFromAuthConfigMap(cm, ng.IAM.InstanceRoleARN)
 	if _, err := client.Update(cm); err != nil {
 		return errors.Wrap(err, "updating auth ConfigMap and removing instance role")
