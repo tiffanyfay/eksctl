@@ -71,3 +71,18 @@ func UpdateAuthConfigMap(cm *corev1.ConfigMap, ngInstanceRoleARN string) error {
 	appendNodeGroupToAuthConfigMap(&mapRoles, ngInstanceRoleARN)
 	return updateAuthConfigMap(cm, mapRoles)
 }
+
+// RemoveNodeGroupFromAuthConfigMap removes a nodegroups instance mapped role from the ConfigMap
+func RemoveNodeGroupFromAuthConfigMap(cm *corev1.ConfigMap, ngInstanceRoleARN string) error {
+	mapRoles := makeMapRolesData()
+	var mapRolesUpdated mapRolesData
+	if err := yaml.Unmarshal([]byte(cm.Data["mapRoles"]), &mapRoles); err != nil {
+		return err
+	}
+	for i, role := range mapRoles {
+		if role["rolearn"] != ngInstanceRoleARN {
+			mapRolesUpdated = append(mapRolesUpdated, mapRoles[i])
+		}
+	}
+	return updateAuthConfigMap(cm, mapRolesUpdated)
+}
