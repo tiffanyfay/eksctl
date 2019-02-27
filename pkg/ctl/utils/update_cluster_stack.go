@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/kris-nova/logger"
 	"github.com/pkg/errors"
@@ -70,6 +71,21 @@ func doUpdateClusterStacksCmd(p *api.ProviderConfig, cfg *api.ClusterConfig, nam
 
 	if cfg.Metadata.Name == "" {
 		return fmt.Errorf("--name must be set")
+	}
+
+	if cfg.Metadata.Version == "" {
+		cfg.Metadata.Version = api.LatestVersion
+	}
+	if cfg.Metadata.Version != api.LatestVersion {
+		validVersion := false
+		for _, v := range api.SupportedVersions() {
+			if cfg.Metadata.Version == v {
+				validVersion = true
+			}
+		}
+		if !validVersion {
+			return fmt.Errorf("invalid version, supported values: %s", strings.Join(api.SupportedVersions(), ", "))
+		}
 	}
 
 	if err := ctl.GetClusterVPC(cfg); err != nil {

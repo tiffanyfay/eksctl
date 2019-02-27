@@ -13,6 +13,7 @@ import (
 
 	api "github.com/weaveworks/eksctl/pkg/apis/eksctl.io/v1alpha4"
 	"github.com/weaveworks/eksctl/pkg/cfn/builder"
+	"github.com/weaveworks/eksctl/pkg/printers"
 )
 
 func (c *StackCollection) makeClusterStackName() string {
@@ -66,12 +67,15 @@ func (c *StackCollection) WaitDeleteCluster(force bool) error {
 func (c *StackCollection) AppendNewClusterStackResource(dryRun bool) error {
 	name := c.makeClusterStackName()
 
+	printer := printers.NewJSONPrinter()
 	// NOTE: currently we can only append new resources to the stack,
 	// as there are a few limitations:
 	// - it must work with VPC that are imported as well as VPC that
-	//   is mamaged as part of the stack;
+	//   is managed as part of the stack;
 	// - CloudFormation cannot yet upgrade EKS control plane itself;
 
+	versionPath := "ControlPlane.Properties.Version"
+	var updateVersion bool
 	currentTemplate, err := c.GetStackTemplate(name)
 	if err != nil {
 		return errors.Wrapf(err, "error getting stack template %s", name)
@@ -81,6 +85,8 @@ func (c *StackCollection) AppendNewClusterStackResource(dryRun bool) error {
 	addOutputs := []string{}
 
 	currentResources := gjson.Get(currentTemplate, resourcesRootPath)
+	currentVersion := currentResources.Get(versionPath)
+
 	currentOutputs := gjson.Get(currentTemplate, outputsRootPath)
 	if !currentResources.IsObject() || !currentOutputs.IsObject() {
 		return fmt.Errorf("unexpected template format of the current stack ")
@@ -96,9 +102,13 @@ func (c *StackCollection) AppendNewClusterStackResource(dryRun bool) error {
 	if err != nil {
 		return errors.Wrapf(err, "rendering template for %q stack", name)
 	}
-	logger.Debug("newTemplate = %s", newTemplate)
+	// logger.Debug("newTemplate = %s", newTemplate)
+	if err := printer.LogObj(logger.Debug, "newTemplate = \\\n", newStack.Template()); err != nil {
+		return err
+	}
 
 	newResources := gjson.Get(string(newTemplate), resourcesRootPath)
+	newVersion := newResources.Get(versionPath)
 	newOutputs := gjson.Get(string(newTemplate), outputsRootPath)
 	if !newResources.IsObject() || !newOutputs.IsObject() {
 		return fmt.Errorf("unexpected template format of the new version of the stack ")
@@ -109,7 +119,14 @@ func (c *StackCollection) AppendNewClusterStackResource(dryRun bool) error {
 	var iterErr error
 	iterFunc := func(list *[]string, root string, currentSet, key, value gjson.Result) bool {
 		k := key.String()
+		logger.Info("key %v", k)
 		if currentSet.Get(k).Exists() {
+			if k == "ControlPlane" && currentVersion.Int() < newVersion.Int() {
+				logger.Info("Updating control plane version from %s to %s")
+				currentTemplate, iterErr = sjson.Set(currentTemplate, resourcesRootPath+"."+versionPath, newVersion.String())
+				updateVersion = true
+				return iterErr == nil
+			}
 			return true
 		}
 		*list = append(*list, k)
@@ -130,14 +147,14 @@ func (c *StackCollection) AppendNewClusterStackResource(dryRun bool) error {
 		return errors.Wrap(iterErr, "adding outputs to current stack template")
 	}
 
-	if len(addResources) == 0 && len(addOutputs) == 0 {
+	if !updateVersion && len(addResources) == 0 && len(addOutputs) == 0 {
 		logger.Success("all resources in cluster stack %q are up-to-date", name)
 		return nil
 	}
 
-	logger.Debug("currentTemplate = %s", currentTemplate)
+	logger.Info("currentTemplate!!! = %s", currentTemplate)
 
-	describeUpdate := fmt.Sprintf("updating stack to add new resources %v and ouputs %v", addResources, addOutputs)
+	describeUpdate := fmt.Sprintf("updating stack to add new resources %v and outputs %v", addResources, addOutputs)
 	if dryRun {
 		logger.Info("(dry-run) %s", describeUpdate)
 		return nil
